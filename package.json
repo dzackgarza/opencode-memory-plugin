@@ -1,0 +1,17 @@
+{
+  "name": "opencode-postgres-memory-plugin",
+  "private": true,
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "latest",
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.2.20"
+  },
+  "module": "./src/index.ts"
+}

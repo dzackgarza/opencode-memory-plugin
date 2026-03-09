@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "github-copilot/gpt-4.1",
+  "plugin": [
+    "file:///home/dzack/opencode-plugins/opencode-postgres-memory-plugin/src/index.ts"
+  ],
+  "permission": {
+    "query_memories": "allow"
+  }
+}
