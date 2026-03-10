@@ -6,3 +6,7 @@ setup-npm-trust:
 # Manual publish from local (requires 2FA)
 publish:
     npm publish
+
+# Run TypeScript typecheck
+typecheck:
+    bun run typecheck
