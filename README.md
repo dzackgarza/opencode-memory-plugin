@@ -123,10 +123,21 @@ The tool returns two distinct failure classes:
 
 This is meant to make it obvious whether the agent wrote bad SQL or the plugin/database environment is misconfigured.
 
+## Side Effects
+
+- Connects to the configured PostgreSQL database on every tool invocation.
+- On first connection, bootstraps the `memories` table and `hnsw` index if they do not exist.
+- All writes are permanent; there is no TTL or automatic eviction.
+
+## External Dependencies
+
+- [PostgreSQL](https://www.postgresql.org/) ≥ 14
+- [pgvector](https://github.com/pgvector/pgvector) extension (`CREATE EXTENSION IF NOT EXISTS vector`)
+
 ## Development
 
 ```bash
-just setup
+just install
 just test
 just check
 ```
