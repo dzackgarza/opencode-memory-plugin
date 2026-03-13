@@ -48,7 +48,34 @@ For repo-local verification, the package `.envrc` exports `OPENCODE_CONFIG`,
 
 The database must have the `vector` extension available.
 
-## Schema
+## Tool: `query_memories`
+
+Executes a raw SQL query against the configured PostgreSQL memory database.
+
+#### Input
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `sql` | `string` | Yes | Any valid PostgreSQL statement |
+
+#### Example Input
+
+```json
+{ "sql": "SELECT content FROM memories WHERE project_name = 'my-project' LIMIT 5" }
+```
+
+#### Example Output
+
+```
+content
+-----------
+# Deploy notes
+The production hostname is api.internal.example
+```
+
+Errors are returned as strings prefixed with `QUERY FAILURE:` or `TOOL FAILURE:`.
+
+## Database Schema
 
 Canonical table: `memories`
 
