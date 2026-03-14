@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -76,9 +76,6 @@ function registerTempPath(path: string): string {
   return path;
 }
 
-function makeTempDir(prefix: string): string {
-  return registerTempPath(mkdtempSync(join(tmpdir(), prefix)));
-}
 
 function randomSuffix(): string {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -285,9 +282,11 @@ async function startServer(databaseUrl: string): Promise<ServerHarness> {
   const configHome = join(xdgRoot, "config");
   const cacheHome = join(xdgRoot, "cache");
   const stateHome = join(xdgRoot, "state");
+  const testHome = join(xdgRoot, "home");
   mkdirSync(configHome, { recursive: true });
   mkdirSync(cacheHome, { recursive: true });
   mkdirSync(stateHome, { recursive: true });
+  mkdirSync(testHome, { recursive: true });
 
   const serverProcess = spawn(
     "direnv",
@@ -315,6 +314,7 @@ async function startServer(databaseUrl: string): Promise<ServerHarness> {
         XDG_CONFIG_HOME: configHome,
         XDG_CACHE_HOME: cacheHome,
         XDG_STATE_HOME: stateHome,
+        OPENCODE_TEST_HOME: testHome,
       },
       stdio: ["ignore", "pipe", "pipe"],
     },

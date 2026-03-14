@@ -22,7 +22,7 @@ test *ARGS:
 
 # Run TypeScript typecheck
 typecheck:
-    direnv exec {{justfile_directory()}} bun run typecheck
+    direnv exec {{justfile_directory()}} bunx tsc --noEmit
 
 # Run the preferred local verification workflow
 check:
