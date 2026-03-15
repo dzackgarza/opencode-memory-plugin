@@ -1,5 +1,5 @@
 {
-  "name": "@dzackgarza/opencode-file-memory-plugin",
+  "name": "@dzackgarza/opencode-memory-plugin",
   "version": "0.1.0",
   "description": "Persistent markdown-file-based memory store for OpenCode agents, with semantic search via semtools.",
   "main": "./src/index.ts",
@@ -18,7 +18,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dzackgarza/opencode-postgres-memory-plugin.git"
+    "url": "git+https://github.com/dzackgarza/opencode-memory-plugin.git"
   },
   "keywords": [
     "opencode",

@@ -350,21 +350,7 @@ describe("file-memory runtime integration", () => {
     );
     const output = execFileSync(
       "uv",
-      [
-        "run",
-        "--no-project",
-        "--python",
-        "3.12",
-        "--with",
-        "typer",
-        "--with",
-        "pyyaml",
-        "python3",
-        cliPath,
-        "list-files",
-        "--project",
-        project,
-      ],
+      ["run", cliPath, "list-files", "--project", project],
       { env: { ...process.env, OPENCODE_MEMORY_ROOT: memRoot }, encoding: "utf8" },
     );
     const paths = output

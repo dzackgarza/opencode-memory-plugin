@@ -6,7 +6,7 @@ import pkg from "../package.json" assert { type: "json" };
 
 const PLUGIN_VERSION = pkg.version;
 const BUG_REPORTING_URL =
-  "https://github.com/dzackgarza/opencode-postgres-memory-plugin/issues/new?labels=bug";
+  "https://github.com/dzackgarza/opencode-memory-plugin/issues/new?labels=bug";
 const MEMORY_ROOT_ENV = "OPENCODE_MEMORY_ROOT";
 const MEMORY_SEED_ENV = "OPENCODE_MEMORY_TEST_SEED";
 const ISSUE_REPORTING_HINT = `If this looks like a plugin/runtime bug, file a GitHub issue tagged \`bug\`: ${BUG_REPORTING_URL}`;

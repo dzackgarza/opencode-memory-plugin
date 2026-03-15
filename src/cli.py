@@ -22,7 +22,6 @@ import os
 import re
 import secrets
 import subprocess
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Optional
@@ -32,7 +31,7 @@ import yaml
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
-BUG_REPORTING_URL = "https://github.com/dzackgarza/opencode-postgres-memory-plugin/issues/new?labels=bug"
+BUG_REPORTING_URL = "https://github.com/dzackgarza/opencode-memory-plugin/issues/new?labels=bug"
 
 # ---------------------------------------------------------------------------
 # Git helpers
@@ -84,7 +83,8 @@ def ensure_memory_repo(root: Path) -> None:
             check=False,
         )
         gitignore = root / ".gitignore"
-        gitignore.write_text("*.tmp\n")
+        if not gitignore.exists():
+            gitignore.write_text("*.tmp\n")
         _git_commit(root, "chore: initialize memory store", allow_empty=True)
 
 
