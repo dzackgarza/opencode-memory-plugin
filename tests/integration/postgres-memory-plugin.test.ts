@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
+  existsSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -151,7 +152,6 @@ afterAll(() => {
 describe("file-memory runtime integration", () => {
   it("remember creates a YAML-headered markdown file with correct structure", async () => {
     const memRoot = makeTempMemoryRoot();
-    const project = `test_${randomSuffix()}`;
     const content = "The production hostname is api.internal.example";
 
     const result = (await fileMemoryTesting.runCliCommand(
@@ -161,8 +161,6 @@ describe("file-memory runtime integration", () => {
         content,
         "--scope",
         "global",
-        "--project",
-        project,
         "--tag",
         "infra",
         "--metadata",
@@ -176,7 +174,7 @@ describe("file-memory runtime integration", () => {
     if (!result.ok || result.kind !== "remember") throw new Error(JSON.stringify(result));
     expect(result.id).toMatch(/^mem_/);
 
-    // File must exist on disk with correct content
+    // File must exist on disk under global/ with correct content
     const globalDir = join(memRoot, "global");
     const files = readdirSync(globalDir);
     expect(files.length).toBe(1);
@@ -187,41 +185,54 @@ describe("file-memory runtime integration", () => {
     expect(fileContent).toContain(content);
   });
 
-  it("remember + list_memories round-trip preserves content and enforces scope isolation", async () => {
+  it("memory root is initialized as a git repo on first write", async () => {
+    const memRoot = makeTempMemoryRoot();
+
+    await fileMemoryTesting.runCliCommand(
+      ["remember", "--content", "first memory", "--scope", "global"],
+      { ...process.env, OPENCODE_MEMORY_ROOT: memRoot },
+    );
+
+    expect(existsSync(join(memRoot, ".git"))).toBe(true);
+  });
+
+  it("remember + list_memories round-trip: project vs global scope isolation", async () => {
     const memRoot = makeTempMemoryRoot();
     const project = `test_${randomSuffix()}`;
     const sessionId = `ses_${randomSuffix()}`;
 
+    // Project-scoped memory (tagged with a session_id for later filtering)
     await fileMemoryTesting.runCliCommand(
       [
         "remember",
         "--content",
-        "session note",
-        "--scope",
-        "session",
-        "--session-id",
-        sessionId,
+        "project note",
         "--project",
         project,
+        "--session-id",
+        sessionId,
       ],
       { ...process.env, OPENCODE_MEMORY_ROOT: memRoot },
     );
+    // Global memory
     await fileMemoryTesting.runCliCommand(
-      ["remember", "--content", "global note", "--scope", "global", "--project", project],
+      ["remember", "--content", "global note", "--scope", "global"],
       { ...process.env, OPENCODE_MEMORY_ROOT: memRoot },
     );
 
-    const sessionList = (await fileMemoryTesting.runCliCommand(
-      ["list", "--project", project, "--scope", "session", "--session-id", sessionId],
+    // List by project + session filter → only the project note
+    const projectList = (await fileMemoryTesting.runCliCommand(
+      ["list", "--project", project, "--session-id", sessionId],
       { ...process.env, OPENCODE_MEMORY_ROOT: memRoot },
     )) as CliResult;
-    if (!sessionList.ok || sessionList.kind !== "list")
-      throw new Error(JSON.stringify(sessionList));
-    expect(sessionList.count).toBe(1);
-    expect(sessionList.results[0]?.content).toBe("session note");
+    if (!projectList.ok || projectList.kind !== "list")
+      throw new Error(JSON.stringify(projectList));
+    expect(projectList.count).toBe(1);
+    expect(projectList.results[0]?.content).toBe("project note");
 
+    // List global only → only the global note
     const globalList = (await fileMemoryTesting.runCliCommand(
-      ["list", "--project", project, "--scope", "global"],
+      ["list", "--scope", "global"],
       { ...process.env, OPENCODE_MEMORY_ROOT: memRoot },
     )) as CliResult;
     if (!globalList.ok || globalList.kind !== "list")
@@ -229,8 +240,9 @@ describe("file-memory runtime integration", () => {
     expect(globalList.count).toBe(1);
     expect(globalList.results[0]?.content).toBe("global note");
 
+    // List all (no scope, no project) → both
     const allList = (await fileMemoryTesting.runCliCommand(
-      ["list", "--project", project],
+      ["list"],
       { ...process.env, OPENCODE_MEMORY_ROOT: memRoot },
     )) as CliResult;
     if (!allList.ok || allList.kind !== "list") throw new Error(JSON.stringify(allList));
@@ -242,26 +254,27 @@ describe("file-memory runtime integration", () => {
     const project = `test_${randomSuffix()}`;
 
     const r1 = (await fileMemoryTesting.runCliCommand(
-      ["remember", "--content", "to delete", "--scope", "global", "--project", project],
+      ["remember", "--content", "to delete", "--project", project],
       { ...process.env, OPENCODE_MEMORY_ROOT: memRoot },
     )) as CliResult;
     const r2 = (await fileMemoryTesting.runCliCommand(
-      ["remember", "--content", "to keep", "--scope", "global", "--project", project],
+      ["remember", "--content", "to keep", "--project", project],
       { ...process.env, OPENCODE_MEMORY_ROOT: memRoot },
     )) as CliResult;
 
     if (!r1.ok || r1.kind !== "remember") throw new Error(JSON.stringify(r1));
     if (!r2.ok || r2.kind !== "remember") throw new Error(JSON.stringify(r2));
 
+    // forget no longer needs --project: IDs are globally unique
     const forgetResult = (await fileMemoryTesting.runCliCommand(
-      ["forget", "--id", r1.id, "--project", project],
+      ["forget", "--id", r1.id],
       { ...process.env, OPENCODE_MEMORY_ROOT: memRoot },
     )) as CliResult;
     if (!forgetResult.ok) throw new Error(`forget failed: ${JSON.stringify(forgetResult)}`);
     expect(forgetResult.kind).toBe("forget");
 
     const remaining = (await fileMemoryTesting.runCliCommand(
-      ["list", "--project", project, "--scope", "global"],
+      ["list", "--project", project],
       { ...process.env, OPENCODE_MEMORY_ROOT: memRoot },
     )) as CliResult;
     if (!remaining.ok || remaining.kind !== "list") throw new Error(JSON.stringify(remaining));
@@ -271,10 +284,9 @@ describe("file-memory runtime integration", () => {
 
   it("forget returns a not_found failure for an unknown ID", async () => {
     const memRoot = makeTempMemoryRoot();
-    const project = `test_${randomSuffix()}`;
 
     const result = (await fileMemoryTesting.runCliCommand(
-      ["forget", "--id", "mem_doesnotexist", "--project", project],
+      ["forget", "--id", "mem_doesnotexist"],
       { ...process.env, OPENCODE_MEMORY_ROOT: memRoot },
     )) as CliResult;
 
@@ -286,7 +298,6 @@ describe("file-memory runtime integration", () => {
   it("concurrent writes produce distinct non-colliding files", async () => {
     const memRoot = makeTempMemoryRoot();
     const project = `test_${randomSuffix()}`;
-    const sessionId = `ses_${randomSuffix()}`;
 
     const writes = Array.from({ length: 10 }, (_, i) =>
       fileMemoryTesting.runCliCommand(
@@ -294,10 +305,6 @@ describe("file-memory runtime integration", () => {
           "remember",
           "--content",
           `memory ${i}`,
-          "--scope",
-          "session",
-          "--session-id",
-          sessionId,
           "--project",
           project,
         ],
@@ -315,11 +322,60 @@ describe("file-memory runtime integration", () => {
     expect(ids.size).toBe(10);
 
     const listed = (await fileMemoryTesting.runCliCommand(
-      ["list", "--project", project, "--scope", "session", "--session-id", sessionId],
+      ["list", "--project", project],
       { ...process.env, OPENCODE_MEMORY_ROOT: memRoot },
     )) as CliResult;
     if (!listed.ok || listed.kind !== "list") throw new Error(JSON.stringify(listed));
     expect(listed.count).toBe(10);
+  });
+
+  it("list-files outputs one path per line for piping", async () => {
+    const memRoot = makeTempMemoryRoot();
+    const project = `test_${randomSuffix()}`;
+
+    for (let i = 0; i < 3; i++) {
+      await fileMemoryTesting.runCliCommand(
+        ["remember", "--content", `note ${i}`, "--project", project],
+        { ...process.env, OPENCODE_MEMORY_ROOT: memRoot },
+      );
+    }
+
+    // list-files outputs raw paths, not JSON — use the CLI directly
+    const { execFileSync } = await import("node:child_process");
+    const { fileURLToPath } = await import("node:url");
+    const { join: pathJoin } = await import("node:path");
+    const cliPath = pathJoin(
+      fileURLToPath(new URL("../../src/", import.meta.url)),
+      "cli.py",
+    );
+    const output = execFileSync(
+      "uv",
+      [
+        "run",
+        "--no-project",
+        "--python",
+        "3.12",
+        "--with",
+        "typer",
+        "--with",
+        "pyyaml",
+        "python3",
+        cliPath,
+        "list-files",
+        "--project",
+        project,
+      ],
+      { env: { ...process.env, OPENCODE_MEMORY_ROOT: memRoot }, encoding: "utf8" },
+    );
+    const paths = output
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    expect(paths.length).toBe(3);
+    for (const p of paths) {
+      expect(p).toMatch(/\.md$/);
+      expect(existsSync(p)).toBe(true);
+    }
   });
 
   it("recall returns semantically relevant results via semtools", async () => {
@@ -332,7 +388,7 @@ describe("file-memory runtime integration", () => {
       "nginx handles load balancing across three backend instances",
     ]) {
       await fileMemoryTesting.runCliCommand(
-        ["remember", "--content", content, "--scope", "global", "--project", project],
+        ["remember", "--content", content, "--project", project],
         { ...process.env, OPENCODE_MEMORY_ROOT: memRoot },
       );
     }
@@ -343,8 +399,6 @@ describe("file-memory runtime integration", () => {
         "nginx web server configuration",
         "--project",
         project,
-        "--scope",
-        "global",
         "--limit",
         "2",
       ],
@@ -359,8 +413,9 @@ describe("file-memory runtime integration", () => {
   }, 60_000);
 
   it("formatCliResult produces TOOL FAILURE text for failed results", async () => {
+    // forget on a non-existent memory root → not_found failure
     const failResult = (await fileMemoryTesting.runCliCommand(
-      ["forget", "--id", "mem_ghost", "--project", "noproject"],
+      ["forget", "--id", "mem_ghost"],
       { ...process.env, OPENCODE_MEMORY_ROOT: "/tmp/definitely_does_not_exist_xyzzy" },
     )) as CliResult;
 

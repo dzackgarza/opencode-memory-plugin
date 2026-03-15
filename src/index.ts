@@ -106,16 +106,16 @@ function withPluginVersion(description: string): string {
 }
 
 function resolveMemoryRoot(
-  projectName: string,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const explicit = env[MEMORY_ROOT_ENV]?.trim();
   if (explicit) return explicit;
-  // Default mirrors the Python CLI logic: ~/.local/share/opencode-memory/{project}
+  // Default mirrors the Python CLI logic: ~/.local/share/opencode-memory
+  // (shared across all projects; project slug is a subdirectory within the repo)
   const xdgData =
     env.XDG_DATA_HOME?.trim() ||
     join(env.HOME ?? "~", ".local", "share");
-  return join(xdgData, "opencode-memory", projectName);
+  return join(xdgData, "opencode-memory");
 }
 
 function cliPath(): string {
@@ -243,9 +243,7 @@ export const fileMemoryTesting = {
 // Plugin
 // ---------------------------------------------------------------------------
 
-export const FileMemoryPlugin: Plugin = async ({ project }) => {
-  const projectName = project.id;
-
+export const FileMemoryPlugin: Plugin = async () => {
   return {
     tool: {
       remember: tool({
@@ -253,15 +251,20 @@ export const FileMemoryPlugin: Plugin = async ({ project }) => {
           withPluginVersion(
             `Use when you need to save a fact, note, or context for future recall.
 
-Stores the content as a YAML-headered markdown file.
+Stores the content as a YAML-headered markdown file in a git-backed memory store.
 
-Scopes:
-  - session: tied to the current session (default). Pass session_id to override.
-  - global: shared across all sessions for this project.
+Project scoping (automatic):
+  - Memories are filed under the git-root of the current working directory.
+  - If the agent is not in a git repo, memories go to the global scope automatically.
+
+Scope override:
+  - scope: "global" — force global storage regardless of git repo context.
+
+Session tracking:
+  - Pass session_id to tag the memory with a session for later filtering.
 
 Example: save a deploy note for later recall
   content: "Production deploy requires manual approval from @ops"
-  scope: "session"
   tags: ["deploy", "ops"]`,
           ),
           "remember",
@@ -274,12 +277,12 @@ Example: save a deploy note for later recall
           scope: tool.schema
             .string()
             .optional()
-            .describe("'session' (default) or 'global'"),
+            .describe("'global' to force global scope. Omit to auto-detect project from working directory."),
           session_id: tool.schema
             .string()
             .optional()
             .describe(
-              "Session ID for session-scoped memories. Defaults to the current OpenCode session.",
+              "Session ID stored as metadata for later filtering. Defaults to the current OpenCode session.",
             ),
           tags: tool.schema
             .array(tool.schema.string())
@@ -291,8 +294,8 @@ Example: save a deploy note for later recall
             .describe("JSON object for arbitrary key-value metadata, e.g. '{\"topic\":\"infra\"}'"),
         },
         async execute(args, context) {
-          const scope = args.scope ?? "session";
-          const sessionId = args.session_id ?? (scope === "session" ? context.sessionID : undefined);
+          const scope = args.scope;
+          const sessionId = args.session_id ?? context.sessionID;
 
           await context.ask({
             permission: "remember",
@@ -305,18 +308,17 @@ Example: save a deploy note for later recall
             "remember",
             "--content",
             args.content,
-            "--scope",
-            scope,
-            "--project",
-            projectName,
+            "--cwd",
+            process.cwd(),
           ];
+          if (scope) cliArgs.push("--scope", scope);
           if (sessionId) cliArgs.push("--session-id", sessionId);
           if (args.tags?.length) {
             for (const t of args.tags) cliArgs.push("--tag", t);
           }
           if (args.metadata) cliArgs.push("--metadata", args.metadata);
 
-          const memoryRoot = resolveMemoryRoot(projectName);
+          const memoryRoot = resolveMemoryRoot();
           const result = await runCliCommand(cliArgs, {
             ...process.env,
             OPENCODE_MEMORY_ROOT: memoryRoot,
@@ -325,7 +327,7 @@ Example: save a deploy note for later recall
           if (result.ok && result.kind === "remember") {
             context.metadata({
               title: "Saved memory",
-              metadata: { id: result.id, scope: result.scope, projectName },
+              metadata: { id: result.id, scope: result.scope, project: result.project },
             });
           }
 
@@ -340,14 +342,12 @@ Example: save a deploy note for later recall
 
 Performs semantic search over memories using semtools. Returns the closest matches by meaning.
 
-Scopes:
-  - omit scope to search all memories for this project
-  - scope: "session" searches only the current (or specified) session
-  - scope: "global" searches only global memories
+Scope:
+  - Omit scope to search all memories for the current project (auto-detected from working directory).
+  - scope: "global" searches only global memories.
 
 Example: find notes about deployment
-  query: "production deployment steps"
-  scope: "session"`,
+  query: "production deployment steps"`,
           ),
           "recall",
           "visible",
@@ -359,13 +359,11 @@ Example: find notes about deployment
           scope: tool.schema
             .string()
             .optional()
-            .describe("Restrict to 'session' or 'global'. Omit to search all."),
+            .describe("'global' to restrict to global memories. Omit to search current project."),
           session_id: tool.schema
             .string()
             .optional()
-            .describe(
-              "Session ID when scope='session'. Defaults to the current OpenCode session.",
-            ),
+            .describe("Filter to memories from a specific session."),
           limit: tool.schema
             .number()
             .optional()
@@ -373,8 +371,7 @@ Example: find notes about deployment
         },
         async execute(args, context) {
           const scope = args.scope;
-          const sessionId =
-            args.session_id ?? (scope === "session" ? context.sessionID : undefined);
+          const sessionId = args.session_id;
 
           await context.ask({
             permission: "recall",
@@ -386,14 +383,14 @@ Example: find notes about deployment
           const cliArgs = [
             "recall",
             args.query,
-            "--project",
-            projectName,
+            "--cwd",
+            process.cwd(),
           ];
           if (scope) cliArgs.push("--scope", scope);
           if (sessionId) cliArgs.push("--session-id", sessionId);
           if (args.limit != null) cliArgs.push("--limit", String(args.limit));
 
-          const memoryRoot = resolveMemoryRoot(projectName);
+          const memoryRoot = resolveMemoryRoot();
           const result = await runCliCommand(cliArgs, {
             ...process.env,
             OPENCODE_MEMORY_ROOT: memoryRoot,
@@ -402,7 +399,7 @@ Example: find notes about deployment
           if (result.ok && result.kind === "recall") {
             context.metadata({
               title: "Recalled memories",
-              metadata: { query: args.query, count: result.count, projectName },
+              metadata: { query: args.query, count: result.count },
             });
           }
 
@@ -428,13 +425,11 @@ Example: list all global memories tagged "deploy"
           scope: tool.schema
             .string()
             .optional()
-            .describe("Filter to 'session' or 'global'. Omit to list all."),
+            .describe("'global' to list only global memories. Omit to list current project or all."),
           session_id: tool.schema
             .string()
             .optional()
-            .describe(
-              "Session ID when scope='session'. Defaults to the current OpenCode session.",
-            ),
+            .describe("Filter to memories from a specific session."),
           tag: tool.schema
             .string()
             .optional()
@@ -446,8 +441,7 @@ Example: list all global memories tagged "deploy"
         },
         async execute(args, context) {
           const scope = args.scope;
-          const sessionId =
-            args.session_id ?? (scope === "session" ? context.sessionID : undefined);
+          const sessionId = args.session_id;
 
           await context.ask({
             permission: "list_memories",
@@ -456,13 +450,13 @@ Example: list all global memories tagged "deploy"
             metadata: { scope, sessionId, tag: args.tag },
           });
 
-          const cliArgs = ["list", "--project", projectName];
+          const cliArgs = ["list", "--cwd", process.cwd()];
           if (scope) cliArgs.push("--scope", scope);
           if (sessionId) cliArgs.push("--session-id", sessionId);
           if (args.tag) cliArgs.push("--tag", args.tag);
           if (args.limit != null) cliArgs.push("--limit", String(args.limit));
 
-          const memoryRoot = resolveMemoryRoot(projectName);
+          const memoryRoot = resolveMemoryRoot();
           const result = await runCliCommand(cliArgs, {
             ...process.env,
             OPENCODE_MEMORY_ROOT: memoryRoot,
@@ -471,7 +465,7 @@ Example: list all global memories tagged "deploy"
           if (result.ok && result.kind === "list") {
             context.metadata({
               title: "Listed memories",
-              metadata: { scope, count: result.count, projectName },
+              metadata: { scope, count: result.count },
             });
           }
 
@@ -485,6 +479,7 @@ Example: list all global memories tagged "deploy"
             `Use when a stored memory is outdated, incorrect, or no longer needed.
 
 Deletes the memory permanently by its ID. Obtain the ID from recall or list_memories.
+The deletion is committed to the memory git repo for auditability.
 
 Example: delete a memory with id "mem_abc123"
   id: "mem_abc123"`,
@@ -505,8 +500,8 @@ Example: delete a memory with id "mem_abc123"
             metadata: { id: args.id },
           });
 
-          const cliArgs = ["forget", "--id", args.id, "--project", projectName];
-          const memoryRoot = resolveMemoryRoot(projectName);
+          const cliArgs = ["forget", "--id", args.id];
+          const memoryRoot = resolveMemoryRoot();
           const result = await runCliCommand(cliArgs, {
             ...process.env,
             OPENCODE_MEMORY_ROOT: memoryRoot,
@@ -515,7 +510,7 @@ Example: delete a memory with id "mem_abc123"
           if (result.ok && result.kind === "forget") {
             context.metadata({
               title: "Deleted memory",
-              metadata: { id: args.id, projectName },
+              metadata: { id: args.id },
             });
           }
 
