@@ -250,8 +250,16 @@ Each memory is a YAML-headered markdown file:
 
 ## Reading memories
 
-You are free to read, search, and explore the store using any tools available
-(grep, find, semtools, cat, etc.). This plugin does not gate reads.
+Memories are plain files — search them directly with:
+
+  Semantic search (recommended):
+    npx -y -p @llamaindex/semtools semtools search "deploy steps" {root}/**/*.md
+
+  Keyword search:
+    grep -rl "nginx" {root}/
+
+  Read a file:
+    cat {path}
 
 ## Project
 
