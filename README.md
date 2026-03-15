@@ -124,9 +124,15 @@ uv run src/cli.py forget --id mem_abc123
 
 ## Dependencies
 
-- [`uv`](https://docs.astral.sh/uv/) — Python runner (resolves `typer` and `pyyaml` from inline script metadata)
-- [`semtools`](https://github.com/run-llama/semtools) — local semantic search, no API key required
-- `git` — for memory repo initialization and commit history
+The plugin requires these tools to be installed and on `PATH`:
+
+| Tool | Purpose | Install |
+|------|---------|---------|
+| [`uv`](https://docs.astral.sh/uv/) | Runs the bundled `cli.py` and resolves its Python deps | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| `git` | Memory repo initialization and commit history | OS package manager |
+| [`semtools`](https://github.com/run-llama/semtools) | Local semantic search (optional — only needed for `recall` CLI command or direct semtools usage) | `npm install -g @llamaindex/semtools` or auto-downloaded via `npx` |
+
+`uv` and `git` are required for all plugin operations. `semtools` is only needed if you use the `recall` CLI command or invoke semtools directly for semantic search.
 
 ## Development
 
