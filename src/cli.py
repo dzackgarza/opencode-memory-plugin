@@ -161,6 +161,19 @@ def resolve_memory_root(memory_root_override: Optional[str] = None) -> Path:
     return Path(xdg_data) / "opencode-memory"
 
 
+def validate_project_name(name: str) -> Optional[str]:
+    """Return an error string if name is not a safe single-component directory name."""
+    p = Path(name)
+    if p.is_absolute():
+        return f"project name must not be an absolute path: {name!r}"
+    parts = p.parts
+    if len(parts) != 1:
+        return f"project name must be a single path component (no slashes or '..'): {name!r}"
+    if parts[0] in (".", ".."):
+        return f"project name must not be '.' or '..': {name!r}"
+    return None
+
+
 def resolve_project(
     project: Optional[str],
     cwd: Optional[str],
@@ -180,8 +193,12 @@ def resolve_project(
 
 
 def project_dir(root: Path, project: str) -> Path:
-    """Return the directory for a given project name."""
-    return root / project
+    """Return the directory for a given project name, confined to root."""
+    result = (root / project).resolve()
+    root_resolved = root.resolve()
+    if not str(result).startswith(str(root_resolved) + os.sep) and result != root_resolved:
+        raise ValueError(f"project path escapes memory root: {result}")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -339,6 +356,12 @@ def remember(
     root = resolve_memory_root(memory_root)
     git_error = ensure_memory_repo(root)
 
+    if project:
+        err = validate_project_name(project)
+        if err:
+            emit({"ok": False, "stage": "configuration", "message": err})
+            raise typer.Exit(1)
+
     proj = resolve_project(project, cwd)
     pdir = project_dir(root, proj)
 
@@ -405,21 +428,21 @@ def list_memories(
             mtime      TEXT     -- ISO 8601 from filesystem mtime
         )
     """)
+    rows = []
     for f in files:
         m = parse_memory_file(f)
         if m:
             mtime = datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc).isoformat()
-            conn.execute(
-                "INSERT INTO memories VALUES (?,?,?,?,?,?)",
-                (
-                    m.get("id"),
-                    str(f),
-                    m.get("project"),
-                    m.get("session_id"),
-                    json.dumps(m.get("tags") or []),
-                    mtime,
-                ),
-            )
+            rows.append((
+                m.get("id"),
+                str(f),
+                m.get("project"),
+                m.get("session_id"),
+                json.dumps(m.get("tags") or []),
+                mtime,
+            ))
+    if rows:
+        conn.executemany("INSERT INTO memories VALUES (?,?,?,?,?,?)", rows)
     conn.commit()
     # Prevent write operations — agents may only SELECT
     conn.execute("PRAGMA query_only = ON")
