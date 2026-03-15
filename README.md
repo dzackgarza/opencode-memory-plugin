@@ -6,6 +6,8 @@ OpenCode plugin that gives agents a persistent, git-backed memory store backed b
 
 ## Install
 
+### OpenCode plugin
+
 Add to your OpenCode config:
 
 ```json
@@ -17,6 +19,28 @@ Add to your OpenCode config:
     "remember": "allow",
     "list_memories": "allow",
     "forget": "allow"
+  }
+}
+```
+
+### MCP server
+
+```bash
+uvx --from git+https://github.com/dzackgarza/opencode-memory-plugin opencode-memory-mcp
+```
+
+In any MCP client config:
+
+```json
+{
+  "mcpServers": {
+    "opencode-memory": {
+      "command": "uvx",
+      "args": [
+        "--from", "git+https://github.com/dzackgarza/opencode-memory-plugin",
+        "opencode-memory-mcp"
+      ]
+    }
   }
 }
 ```
