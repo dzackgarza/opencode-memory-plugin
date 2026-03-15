@@ -127,10 +127,10 @@ def resolve_memory_root(memory_root_override: Optional[str] = None) -> Path:
     The default is ~/.local/share/opencode-memory (shared across all projects).
     """
     if memory_root_override:
-        return Path(memory_root_override)
+        return Path(memory_root_override).expanduser()
     env_root = os.environ.get("OPENCODE_MEMORY_ROOT")
     if env_root:
-        return Path(env_root)
+        return Path(env_root).expanduser()
     xdg_data = os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
     return Path(xdg_data) / "opencode-memory"
 

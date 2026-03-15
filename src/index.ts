@@ -1,5 +1,6 @@
 import { type Plugin, tool } from "@opencode-ai/plugin";
 import { $ } from "bun";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pkg from "../package.json" assert { type: "json" };
@@ -110,7 +111,7 @@ function resolveMemoryRoot(
   // (shared across all projects; project slug is a subdirectory within the repo)
   const xdgData =
     env.XDG_DATA_HOME?.trim() ||
-    join(env.HOME ?? "~", ".local", "share");
+    join(env.HOME?.trim() || homedir(), ".local", "share");
   return join(xdgData, "opencode-memory");
 }
 
