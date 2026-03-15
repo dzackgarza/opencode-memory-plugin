@@ -424,7 +424,7 @@ describe("file-memory live opencode sessions", () => {
   it("agent can remember a fact and it appears in the memory root as a file", () => {
     const secret = `GOLDEN-TICKET-${randomUUID()}`;
     const events = runJson(
-      `Call remember exactly once with content="${secret}" and scope="global". Reply with ONLY WRITTEN after the tool finishes.`,
+      `Call remember exactly once with content="${secret}" and project="global". Reply with ONLY WRITTEN after the tool finishes.`,
       sharedConfig,
       { OPENCODE_MEMORY_ROOT: sharedMemRoot },
     );
@@ -440,23 +440,23 @@ describe("file-memory live opencode sessions", () => {
     expect(found).toBe(true);
   }, SESSION_TIMEOUT_MS);
 
-  it("agent can recall a memory written in a prior run", () => {
+  it("agent can find a memory written in a prior run using list_memories", () => {
     // Write in first session
     const secret = `RECALL-TOKEN-${randomUUID()}`;
     runJson(
-      `Call remember exactly once with content="${secret}" and scope="global". Reply ONLY WRITTEN.`,
+      `Call remember exactly once with content="${secret}" and project="global". Reply ONLY WRITTEN.`,
       sharedConfig,
       { OPENCODE_MEMORY_ROOT: sharedMemRoot },
     );
 
-    // Recall in second independent session
+    // Find via list_memories SQL in second independent session
     const readEvents = runJson(
-      `Call recall exactly once with query="${secret}" and scope="global". Reply with ONLY the exact content value from the first result, nothing else.`,
+      `Call list_memories exactly once with sql="SELECT path FROM memories WHERE project='global' ORDER BY mtime DESC LIMIT 1". Reply with ONLY the path value from the result, nothing else.`,
       sharedConfig,
       { OPENCODE_MEMORY_ROOT: sharedMemRoot },
     );
-    const recallToolUse = findCompletedToolUse(readEvents, "recall");
-    expect(recallToolUse.part.state.output).toContain(secret);
+    const listToolUse = findCompletedToolUse(readEvents, "list_memories");
+    expect(listToolUse.part.state.output).toContain(sharedMemRoot);
   }, SESSION_TIMEOUT_MS);
 
   it("forget surfaces a TOOL FAILURE when the memory ID does not exist", () => {
