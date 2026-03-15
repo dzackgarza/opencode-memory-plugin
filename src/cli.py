@@ -449,9 +449,14 @@ def list_memories(
 
     try:
         cursor = conn.execute(sql)
+        if cursor.description is None:
+            emit({"ok": False, "stage": "sql", "message": "SQL statement produced no result set — use a SELECT query"})
+            raise typer.Exit(1)
         cols = [d[0] for d in cursor.description]
         rows = [dict(zip(cols, row)) for row in cursor.fetchall()]
-    except sqlite3.Error as exc:
+    except typer.Exit:
+        raise
+    except Exception as exc:
         emit({"ok": False, "stage": "sql", "message": str(exc)})
         raise typer.Exit(1)
 
