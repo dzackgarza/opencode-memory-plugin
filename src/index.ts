@@ -36,6 +36,7 @@ type RememberSuccess = {
   path: string;
   scope: string;
   project: string;
+  git_error?: string | null;
 };
 
 type RecallSuccess = {
@@ -57,6 +58,7 @@ type ForgetSuccess = {
   kind: "forget";
   id: string;
   message: string;
+  git_error?: string | null;
 };
 
 type CliFailure = {
@@ -148,6 +150,16 @@ async function runCliCommand(
   }
 }
 
+const GIT_FAILURE_HINT = [
+  "Memory was written successfully but the git commit failed.",
+  "Version control is essential — without it, accumulated knowledge has no protection against overwrites or data loss.",
+  `Please investigate and file an issue if this is a plugin bug: ${BUG_REPORTING_URL}`,
+].join("\n");
+
+function formatGitError(error: string): string {
+  return `\n\nGIT COMMIT FAILURE\nerror: ${error}\n${GIT_FAILURE_HINT}`;
+}
+
 function formatCliResult(result: CliResult): string {
   if (!result.ok) {
     return [
@@ -163,7 +175,8 @@ function formatCliResult(result: CliResult): string {
   }
 
   if (result.kind === "remember") {
-    return `Saved: ${result.id} (${result.scope}) → ${result.path}`;
+    const base = `Saved: ${result.id} (${result.scope}) → ${result.path}`;
+    return result.git_error ? base + formatGitError(result.git_error) : base;
   }
 
   if (result.kind === "recall" || result.kind === "list") {
@@ -178,7 +191,9 @@ function formatCliResult(result: CliResult): string {
   }
 
   if (result.kind === "forget") {
-    return result.message;
+    return result.git_error
+      ? result.message + formatGitError(result.git_error)
+      : result.message;
   }
 
   return JSON.stringify(result, null, 2);
@@ -200,7 +215,34 @@ export const fileMemoryTesting = {
 // Plugin
 // ---------------------------------------------------------------------------
 
-export const FileMemoryPlugin: Plugin = async () => {
+async function reportGitFailure(
+  client: Parameters<Plugin>[0]["client"],
+  operation: string,
+  error: string,
+  extra: Record<string, unknown> = {},
+): Promise<void> {
+  const message = `git commit failed after ${operation}: ${error}`;
+  await Promise.allSettled([
+    client.app.log({
+      body: {
+        service: "opencode-memory-plugin",
+        level: "error",
+        message,
+        extra: { operation, error, ...extra },
+      },
+    }),
+    client.tui.showToast({
+      body: {
+        title: "Memory git error",
+        message: `${operation}: git commit failed — ${error}`,
+        variant: "error",
+        duration: 10_000,
+      },
+    }),
+  ]);
+}
+
+export const FileMemoryPlugin: Plugin = async ({ client }) => {
   return {
     tool: {
       remember: tool({
@@ -282,6 +324,12 @@ Example: save a deploy note for later recall
           });
 
           if (result.ok && result.kind === "remember") {
+            if (result.git_error) {
+              await reportGitFailure(client, "remember", result.git_error, {
+                id: result.id,
+                path: result.path,
+              });
+            }
             context.metadata({
               title: "Saved memory",
               metadata: { id: result.id, scope: result.scope, project: result.project },
@@ -465,6 +513,11 @@ Example: delete a memory with id "mem_abc123"
           });
 
           if (result.ok && result.kind === "forget") {
+            if (result.git_error) {
+              await reportGitFailure(client, "forget", result.git_error, {
+                id: args.id,
+              });
+            }
             context.metadata({
               title: "Deleted memory",
               metadata: { id: args.id },

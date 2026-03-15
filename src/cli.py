@@ -72,35 +72,48 @@ def slug_from_path(path: str) -> str:
     return slug or "unknown"
 
 
-def ensure_memory_repo(root: Path) -> None:
-    """Initialize root as a git repo if it isn't already one."""
+def ensure_memory_repo(root: Path) -> Optional[str]:
+    """Initialize root as a git repo if it isn't already one.
+
+    Returns an error message string on failure, None on success.
+    A failure here means the store will not be version-controlled — a significant
+    integrity problem that callers must surface to the agent.
+    """
     root.mkdir(parents=True, exist_ok=True)
     if not (root / ".git").exists():
-        subprocess.run(
+        init = subprocess.run(
             ["git", "init", "--quiet"],
             cwd=root,
             capture_output=True,
+            text=True,
             check=False,
         )
+        if init.returncode != 0:
+            return f"git init failed (exit {init.returncode}): {init.stderr.strip() or '(no output)'}"
         gitignore = root / ".gitignore"
         if not gitignore.exists():
             gitignore.write_text("*.tmp\n")
-        _git_commit(root, "chore: initialize memory store", allow_empty=True)
+        return _git_commit(root, "chore: initialize memory store", allow_empty=True)
+    return None
 
 
-def _git_commit(root: Path, message: str, allow_empty: bool = False) -> None:
-    """Best-effort: stage all changes and commit. Swallows errors silently.
+def _git_commit(root: Path, message: str, allow_empty: bool = False) -> Optional[str]:
+    """Stage all changes and commit. Returns an error string on failure, None on success.
 
-    Data integrity does not depend on this succeeding — the atomic file rename
-    already ensures the write landed. This adds git history as a bonus.
+    Callers must surface non-None results to the agent. Version control is not
+    optional — it is the primary integrity mechanism for the memory store.
     """
     try:
-        subprocess.run(
+        add = subprocess.run(
             ["git", "add", "-A"],
             cwd=root,
             capture_output=True,
+            text=True,
             timeout=10,
         )
+        if add.returncode != 0:
+            return f"git add failed (exit {add.returncode}): {add.stderr.strip() or '(no output)'}"
+
         cmd = [
             "git",
             "-c", "user.email=memory@opencode",
@@ -110,9 +123,21 @@ def _git_commit(root: Path, message: str, allow_empty: bool = False) -> None:
         ]
         if allow_empty:
             cmd.append("--allow-empty")
-        subprocess.run(cmd, cwd=root, capture_output=True, timeout=10)
-    except Exception:
-        pass  # best-effort — file write already succeeded
+        commit = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=10)
+
+        if commit.returncode != 0:
+            combined = (commit.stdout + "\n" + commit.stderr).strip()
+            # "nothing to commit" is exit 1 but benign — the file write already landed
+            if "nothing to commit" in combined:
+                return None
+            return f"git commit failed (exit {commit.returncode}): {combined or '(no output)'}"
+        return None
+    except FileNotFoundError:
+        return "git not found — install git to enable memory version control"
+    except subprocess.TimeoutExpired:
+        return "git operation timed out after 10s"
+    except Exception as exc:
+        return f"git error: {exc}"
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +360,7 @@ def remember(
 ) -> None:
     """Write a new memory to the file store."""
     root = resolve_memory_root(memory_root)
-    ensure_memory_repo(root)
+    git_error = ensure_memory_repo(root)
 
     meta: dict = {}
     if metadata:
@@ -372,7 +397,7 @@ def remember(
         emit({"ok": False, "stage": "write_file", "message": str(exc), "path": str(path)})
         raise typer.Exit(1)
 
-    _git_commit(root, f"remember: add memory {memory_id}")
+    git_error = git_error or _git_commit(root, f"remember: add memory {memory_id}")
 
     emit({
         "ok": True,
@@ -381,6 +406,7 @@ def remember(
         "path": str(path),
         "scope": effective_scope,
         "project": slug,
+        "git_error": git_error,
     })
 
 
@@ -568,8 +594,14 @@ def forget(
                     "id": memory_id,
                 })
                 raise typer.Exit(1)
-            _git_commit(root, f"forget: delete memory {memory_id}")
-            emit({"ok": True, "kind": "forget", "id": memory_id, "message": f"Deleted {memory_id}"})
+            git_error = _git_commit(root, f"forget: delete memory {memory_id}")
+            emit({
+                "ok": True,
+                "kind": "forget",
+                "id": memory_id,
+                "message": f"Deleted {memory_id}",
+                "git_error": git_error,
+            })
             return
 
     emit({
