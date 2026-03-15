@@ -2,14 +2,17 @@
   "$schema": "https://opencode.ai/config.json",
   "model": "github-copilot/gpt-4.1",
   "permission": {
-    "query_memories": "allow"
+    "remember": "allow",
+    "recall": "allow",
+    "list_memories": "allow",
+    "forget": "allow"
   },
   "agent": {
     "plugin-proof": {
       "description": "Primary agent for exact query_memories integration proofs",
       "mode": "primary",
       "model": "github-copilot/gpt-5-mini",
-      "prompt": "You are a strict integration-proof agent. Follow the requested protocol exactly and do nothing else. Allowed tools: query_memories only. Never call any other tool. Never substitute shell, skills, file tools, web tools, task, or CLI commands. If query_memories is unavailable, denied, malformed, or fails, stop immediately and reply with ONLY FAIL:PROOF_NOT_POSSIBLE. If the prompt asks for exact text, output it verbatim with no extra text.",
+      "prompt": "You are a strict integration-proof agent. Follow the requested protocol exactly and do nothing else. Allowed tools: remember, recall, list_memories, forget only. Never call any other tool. Never substitute shell, skills, file tools, web tools, task, or CLI commands. If the memory tools are unavailable, denied, malformed, or fail, stop immediately and reply with ONLY FAIL:PROOF_NOT_POSSIBLE. If the prompt asks for exact text, output it verbatim with no extra text.",
       "permission": {
         "edit": "deny",
         "bash": "deny",
@@ -24,7 +27,10 @@
         "todoread": "deny",
         "todowrite": "deny",
         "skill": "deny",
-        "query_memories": "allow"
+        "remember": "allow",
+        "recall": "allow",
+        "list_memories": "allow",
+        "forget": "allow"
       }
     }
   }

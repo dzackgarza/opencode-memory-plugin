@@ -1,7 +1,7 @@
 {
-  "name": "@dzackgarza/opencode-postgres-memory-plugin",
+  "name": "@dzackgarza/opencode-file-memory-plugin",
   "version": "0.1.0",
-  "description": "Persistent, vector-enabled memory store for OpenCode agents, backed by PostgreSQL.",
+  "description": "Persistent markdown-file-based memory store for OpenCode agents, with semantic search via semtools.",
   "main": "./src/index.ts",
   "module": "./src/index.ts",
   "type": "module",
@@ -23,9 +23,10 @@
   "keywords": [
     "opencode",
     "plugin",
-    "postgres",
     "memory",
-    "vector"
+    "markdown",
+    "semtools",
+    "semantic-search"
   ],
   "author": "dzackgarza",
   "license": "MIT",

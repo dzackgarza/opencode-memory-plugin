@@ -5,3 +5,4 @@ node_modules/
 .postgres_memory/
 .env
 .config/temp.opencode.*.json
+.worktrees
