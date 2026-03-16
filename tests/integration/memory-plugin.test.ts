@@ -11,10 +11,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { fileMemoryTesting } from "../../src/index.ts";
 
-const TOOL_DIR = process.cwd();
+const TOOL_DIR = fileURLToPath(new URL("../..", import.meta.url));
 const OPENCODE_CONFIG_PATH = join(TOOL_DIR, ".config", "opencode.json");
 const MAX_BUFFER = 8 * 1024 * 1024;
 const SESSION_TIMEOUT_MS = 240_000;
@@ -350,12 +350,7 @@ describe("file-memory runtime integration", () => {
 
     // list-files outputs raw paths, not JSON — use the CLI directly
     const { execFileSync } = await import("node:child_process");
-    const { fileURLToPath } = await import("node:url");
-    const { join: pathJoin } = await import("node:path");
-    const cliPath = pathJoin(
-      fileURLToPath(new URL("../../src/opencode_memory/", import.meta.url)),
-      "cli.py",
-    );
+    const cliPath = fileMemoryTesting.cliPath();
     const output = execFileSync(
       "uv",
       ["run", cliPath, "list-files", "--project", project],

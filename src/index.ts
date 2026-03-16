@@ -182,6 +182,7 @@ function formatCliResult(result: CliResult): string {
 export const fileMemoryTesting = {
   BUG_REPORTING_URL,
   buildPassphrase,
+  cliPath,
   formatCliResult,
   resolveMemoryRoot,
   runCliCommand,
