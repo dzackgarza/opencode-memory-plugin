@@ -353,7 +353,7 @@ describe("file-memory runtime integration", () => {
     const { fileURLToPath } = await import("node:url");
     const { join: pathJoin } = await import("node:path");
     const cliPath = pathJoin(
-      fileURLToPath(new URL("../../src/", import.meta.url)),
+      fileURLToPath(new URL("../../src/opencode_memory/", import.meta.url)),
       "cli.py",
     );
     const output = execFileSync(

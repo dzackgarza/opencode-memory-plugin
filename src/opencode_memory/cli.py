@@ -608,5 +608,12 @@ def forget(
     raise typer.Exit(1)
 
 
+@app.command()
+def mcp() -> None:
+    """Launch the FastMCP server wrapper."""
+    from .mcp_server import main as run_mcp
+    run_mcp()
+
+
 if __name__ == "__main__":
     app()

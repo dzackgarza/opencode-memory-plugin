@@ -49,8 +49,8 @@ release: check
 
 # Run the MCP server tests
 mcp-test:
-    cd mcp-server && PYTHONPATH=src uv run python -m pytest
+    uv run python -m pytest
 
 # Run the MCP server locally
 mcp-run:
-    cd mcp-server && uv run opencode-memory-mcp
+    uv run opencode-memory mcp

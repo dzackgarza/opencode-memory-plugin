@@ -97,7 +97,7 @@ function resolveMemoryRoot(
 
 function cliPath(): string {
   const dir = fileURLToPath(new URL(".", import.meta.url));
-  return join(dir, "cli.py");
+  return join(dir, "opencode_memory", "cli.py");
 }
 
 async function runCliCommand(
