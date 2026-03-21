@@ -28,21 +28,13 @@ test: justfile-hygiene
   set -euo pipefail
   root_justfile="{{repo_root}}/../../justfile"
 
-  # Create isolated memory root; export so it is inherited by the sandbox
-  # server process and visible to the test process after sourcing .test-sandbox-env.sh.
-  export OPENCODE_MEMORY_ROOT
-  OPENCODE_MEMORY_ROOT=$(mktemp -d "/tmp/opencode-memory-data-XXXXXXXXXX")
-
   cleanup() {
     just -f "$root_justfile" test-sandbox-down 2>/dev/null || true
-    rm -rf "$OPENCODE_MEMORY_ROOT"
   }
   trap cleanup EXIT
 
-  TEST_SANDBOX_CONFIG_JSON="{{repo_root}}/tests/integration/opencode.json" \
-    just -f "$root_justfile" test-sandbox-up
-  source "{{repo_root}}/../../.test-sandbox-env.sh"
-  cd "{{repo_root}}" && bun test tests/integration
+  just -f "$root_justfile" test-sandbox-up config="{{repo_root}}/tests/integration/opencode.json" envrc="{{repo_root}}/.envrc"
+  direnv exec "{{repo_root}}" bun test tests/integration
 
 # Run TypeScript typecheck
 typecheck: justfile-hygiene
