@@ -7,14 +7,11 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { fileMemoryTesting } from "../../src/index.ts";
 
-const TOOL_DIR = fileURLToPath(new URL("../..", import.meta.url));
 const MAX_BUFFER = 8 * 1024 * 1024;
 const SESSION_TIMEOUT_MS = 240_000;
 const AGENT_NAME = "plugin-proof";
