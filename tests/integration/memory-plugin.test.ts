@@ -106,10 +106,6 @@ function beginSession(prompt: string): string {
   return data.sessionID;
 }
 
-function waitIdle(sessionID: string) {
-  runOcm(["wait", sessionID, "--timeout-sec=180"]);
-}
-
 function readTranscript(sessionID: string): TranscriptData {
   const { stdout } = runOcm(["transcript", sessionID, "--json"]);
   return JSON.parse(stdout) as TranscriptData;
@@ -133,6 +129,22 @@ function findToolStep(transcript: TranscriptData, toolName: string): TranscriptT
   throw new Error(
     `No completed tool step for "${toolName}" in transcript ${transcript.sessionID}`,
   );
+}
+
+async function waitForToolStep(
+  sessionID: string,
+  toolName: string,
+  timeoutMs: number,
+): Promise<TranscriptToolStep> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      return findToolStep(readTranscript(sessionID), toolName);
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  throw new Error(`Timed out waiting for completed tool step "${toolName}" in transcript ${sessionID}.`);
 }
 
 // ---------------------------------------------------------------------------
@@ -369,15 +381,13 @@ describe("file-memory runtime integration", () => {
 // ---------------------------------------------------------------------------
 
 describe("file-memory live opencode sessions", () => {
-  it("agent can remember a fact and it appears in the memory root as a file", () => {
+  it("agent can remember a fact and it appears in the memory root as a file", async () => {
     const secret = `GOLDEN-TICKET-${randomUUID()}`;
     const sessionID = beginSession(
       `Call remember exactly once with content="${secret}" and project="global". Reply with ONLY WRITTEN after the tool finishes.`,
     );
     try {
-      waitIdle(sessionID);
-      const transcript = readTranscript(sessionID);
-      const step = findToolStep(transcript, "remember");
+      const step = await waitForToolStep(sessionID, "remember", SESSION_TIMEOUT_MS);
       expect(step.status).toBe("completed");
 
       // Verify the file was written to disk in the shared memory root
@@ -392,7 +402,7 @@ describe("file-memory live opencode sessions", () => {
     }
   }, SESSION_TIMEOUT_MS);
 
-  it("agent can find a memory written in a prior run using list_memories", () => {
+  it("agent can find a memory written in a prior run using list_memories", async () => {
     const secret = `RECALL-TOKEN-${randomUUID()}`;
 
     // Write in first session
@@ -400,7 +410,7 @@ describe("file-memory live opencode sessions", () => {
       `Call remember exactly once with content="${secret}" and project="global". Reply ONLY WRITTEN.`,
     );
     try {
-      waitIdle(writeID);
+      await waitForToolStep(writeID, "remember", SESSION_TIMEOUT_MS);
     } finally {
       try { runOcm(["delete", writeID]); } catch { /* best-effort */ }
     }
@@ -410,9 +420,7 @@ describe("file-memory live opencode sessions", () => {
       'Call list_memories exactly once with sql="SELECT path FROM memories ORDER BY mtime DESC LIMIT 1". Reply with ONLY FOUND after the tool finishes.',
     );
     try {
-      waitIdle(readID);
-      const transcript = readTranscript(readID);
-      const step = findToolStep(transcript, "list_memories");
+      const step = await waitForToolStep(readID, "list_memories", SESSION_TIMEOUT_MS);
       expect(step.outputText).toContain(SHARED_MEM_ROOT);
       expect(step.outputText).toContain(".md");
     } finally {
@@ -420,14 +428,12 @@ describe("file-memory live opencode sessions", () => {
     }
   }, SESSION_TIMEOUT_MS);
 
-  it("forget surfaces a TOOL FAILURE when the memory ID does not exist", () => {
+  it("forget surfaces a TOOL FAILURE when the memory ID does not exist", async () => {
     const sessionID = beginSession(
       'Call forget exactly once with id="mem_definitelynotavalidid_xyzzy". Reply with ONLY FAILED after the tool finishes.',
     );
     try {
-      waitIdle(sessionID);
-      const transcript = readTranscript(sessionID);
-      const step = findToolStep(transcript, "forget");
+      const step = await waitForToolStep(sessionID, "forget", SESSION_TIMEOUT_MS);
       expect(step.outputText).toContain("TOOL FAILURE");
       expect(step.outputText).not.toContain("Deleted");
     } finally {

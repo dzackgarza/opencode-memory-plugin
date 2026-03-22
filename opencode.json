@@ -6,6 +6,7 @@
   "agent": {
     "plugin-proof": {
       "permission": {
+        "*": "deny",
         "remember": "allow",
         "list_memories": "allow",
         "forget": "allow"
