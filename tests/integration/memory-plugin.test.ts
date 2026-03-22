@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileMemoryTesting } from "../../src/index.ts";
+import { fileMemoryTesting } from "../../src/shared.ts";
 
 function requireEnv(name: string, message: string): string {
   const value = process.env[name]?.trim();
