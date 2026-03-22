@@ -74,10 +74,24 @@ function getOcmBinaryPath(): string {
   const toolDir = registerTempPath(mkdtempSync(join(tmpdir(), "ocm-tool-")));
   const binDir = process.platform === "win32" ? join(toolDir, "Scripts") : join(toolDir, "bin");
   const candidate = join(binDir, process.platform === "win32" ? "ocm.exe" : "ocm");
+  const pythonBinary = join(binDir, process.platform === "win32" ? "python.exe" : "python");
   if (!existsSync(candidate)) {
+    const createVenv = spawnSync("uv", ["venv", toolDir], {
+      env: process.env,
+      cwd: PROJECT_DIR,
+      encoding: "utf8",
+      timeout: SESSION_TIMEOUT_MS,
+      maxBuffer: MAX_BUFFER,
+    });
+    if (createVenv.error) throw createVenv.error;
+    if (createVenv.status !== 0) {
+      throw new Error(
+        `Failed to create ocm venv\nSTDOUT:\n${createVenv.stdout ?? ""}\nSTDERR:\n${createVenv.stderr ?? ""}`,
+      );
+    }
     const install = spawnSync(
       "uv",
-      ["tool", "install", "--tool-dir", toolDir, "--from", MANAGER_PACKAGE, "ocm"],
+      ["pip", "install", "--python", pythonBinary, MANAGER_PACKAGE],
       {
         env: process.env,
         cwd: PROJECT_DIR,
