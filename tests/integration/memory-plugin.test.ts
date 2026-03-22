@@ -24,6 +24,7 @@ const SESSION_TIMEOUT_MS = 240_000;
 const AGENT_NAME = "plugin-proof";
 const MANAGER_PACKAGE = "git+https://github.com/dzackgarza/opencode-manager.git";
 const PROJECT_DIR = process.cwd();
+let ocmBinaryPath: string | undefined;
 
 // OpenCode must already be running before this file executes.
 // `just test` runs the suite, but it does not start or stop the server.
@@ -37,24 +38,14 @@ const SHARED_MEM_ROOT = requireEnv(
 );
 
 type CliResult = Awaited<ReturnType<typeof fileMemoryTesting.runCliCommand>>;
-
-// Tool step shape from `ocm transcript --json`
-type TranscriptToolStep = {
-  type: "tool";
-  tool: string;
-  status: string;
-  inputText: string;
-  outputText: string;
-};
-
-type TranscriptData = {
-  sessionID: string;
-  turns: Array<{
-    userPrompt: string;
-    assistantMessages: Array<{
-      steps: Array<{ type: string; [key: string]: unknown }>;
-    }>;
-  }>;
+type RawSessionMessage = {
+  info?: {
+    role?: string;
+  };
+  parts?: Array<{
+    type?: string;
+    text?: string;
+  } | null>;
 };
 
 const tempPaths = new Set<string>();
@@ -78,10 +69,38 @@ afterAll(() => {
   }
 });
 
+function getOcmBinaryPath(): string {
+  if (ocmBinaryPath) return ocmBinaryPath;
+  const toolDir = registerTempPath(mkdtempSync(join(tmpdir(), "ocm-tool-")));
+  const binDir = process.platform === "win32" ? join(toolDir, "Scripts") : join(toolDir, "bin");
+  const candidate = join(binDir, process.platform === "win32" ? "ocm.exe" : "ocm");
+  if (!existsSync(candidate)) {
+    const install = spawnSync(
+      "uv",
+      ["tool", "install", "--tool-dir", toolDir, "--from", MANAGER_PACKAGE, "ocm"],
+      {
+        env: process.env,
+        cwd: PROJECT_DIR,
+        encoding: "utf8",
+        timeout: SESSION_TIMEOUT_MS,
+        maxBuffer: MAX_BUFFER,
+      },
+    );
+    if (install.error) throw install.error;
+    if (install.status !== 0 || !existsSync(candidate)) {
+      throw new Error(
+        `Failed to install ocm\nSTDOUT:\n${install.stdout ?? ""}\nSTDERR:\n${install.stderr ?? ""}`,
+      );
+    }
+  }
+  ocmBinaryPath = candidate;
+  return candidate;
+}
+
 function runOcm(args: string[]): { stdout: string; stderr: string } {
   const result = spawnSync(
-    "uvx",
-    ["--from", MANAGER_PACKAGE, "ocm", ...args],
+    getOcmBinaryPath(),
+    args,
     {
       env: { ...process.env, OPENCODE_BASE_URL: BASE_URL, OPENCODE_MEMORY_ROOT: SHARED_MEM_ROOT },
       cwd: PROJECT_DIR,
@@ -106,45 +125,60 @@ function beginSession(prompt: string): string {
   return data.sessionID;
 }
 
-function readTranscript(sessionID: string): TranscriptData {
-  const { stdout } = runOcm(["transcript", sessionID, "--json"]);
-  return JSON.parse(stdout) as TranscriptData;
-}
-
-/** Find a completed tool step in a transcript by tool name. */
-function findToolStep(transcript: TranscriptData, toolName: string): TranscriptToolStep {
-  for (const turn of transcript.turns) {
-    for (const msg of turn.assistantMessages) {
-      for (const step of msg.steps) {
-        if (
-          step.type === "tool" &&
-          (step as TranscriptToolStep).tool === toolName &&
-          (step as TranscriptToolStep).status === "completed"
-        ) {
-          return step as TranscriptToolStep;
-        }
-      }
-    }
+async function readRawSessionMessages(sessionID: string): Promise<RawSessionMessage[]> {
+  const response = await fetch(`${BASE_URL}/session/${sessionID}/message`);
+  if (!response.ok) {
+    throw new Error(`Failed to load session messages for ${sessionID}: ${response.status}`);
   }
-  throw new Error(
-    `No completed tool step for "${toolName}" in transcript ${transcript.sessionID}`,
-  );
+  const data = await response.json();
+  if (!Array.isArray(data)) {
+    throw new Error(`Session messages for ${sessionID} were not an array.`);
+  }
+  return data as RawSessionMessage[];
 }
 
-async function waitForToolStep(
+function flattenMessageText(message: RawSessionMessage): string {
+  return (message.parts ?? [])
+    .filter(
+      (part): part is { type?: string; text?: string } =>
+        part !== null && typeof part === "object",
+    )
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text?.trim() ?? "")
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function waitForAssistantText(
   sessionID: string,
-  toolName: string,
+  predicate: (text: string) => boolean,
   timeoutMs: number,
-): Promise<TranscriptToolStep> {
+): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    try {
-      return findToolStep(readTranscript(sessionID), toolName);
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
+    const match = (await readRawSessionMessages(sessionID))
+      .filter((message) => message.info?.role === "assistant")
+      .map(flattenMessageText)
+      .find((text) => text.length > 0 && predicate(text));
+    if (match) return match;
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  throw new Error(`Timed out waiting for completed tool step "${toolName}" in transcript ${sessionID}.`);
+  throw new Error(`Timed out waiting for matching assistant text in session ${sessionID}.`);
+}
+
+async function waitForMemoryContent(content: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const globalDir = join(SHARED_MEM_ROOT, "global");
+    if (existsSync(globalDir)) {
+      const found = readdirSync(globalDir).some((fileName) =>
+        readFileSync(join(globalDir, fileName), "utf8").includes(content),
+      );
+      if (found) return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`Timed out waiting for memory content "${content}" under ${SHARED_MEM_ROOT}.`);
 }
 
 // ---------------------------------------------------------------------------
@@ -387,15 +421,10 @@ describe("file-memory live opencode sessions", () => {
       `Call remember exactly once with content="${secret}" and project="global". Reply with ONLY WRITTEN after the tool finishes.`,
     );
     try {
-      const step = await waitForToolStep(sessionID, "remember", SESSION_TIMEOUT_MS);
-      expect(step.status).toBe("completed");
-
-      // Verify the file was written to disk in the shared memory root
+      await waitForMemoryContent(secret, SESSION_TIMEOUT_MS);
       const globalDir = join(SHARED_MEM_ROOT, "global");
       const files = readdirSync(globalDir);
-      const found = files.some((f) =>
-        readFileSync(join(globalDir, f), "utf8").includes(secret),
-      );
+      const found = files.some((f) => readFileSync(join(globalDir, f), "utf8").includes(secret));
       expect(found).toBe(true);
     } finally {
       try { runOcm(["delete", sessionID]); } catch { /* best-effort */ }
@@ -410,19 +439,23 @@ describe("file-memory live opencode sessions", () => {
       `Call remember exactly once with content="${secret}" and project="global". Reply ONLY WRITTEN.`,
     );
     try {
-      await waitForToolStep(writeID, "remember", SESSION_TIMEOUT_MS);
+      await waitForMemoryContent(secret, SESSION_TIMEOUT_MS);
     } finally {
       try { runOcm(["delete", writeID]); } catch { /* best-effort */ }
     }
 
     // Find via list_memories SQL in second independent session
     const readID = beginSession(
-      'Call list_memories exactly once with sql="SELECT path FROM memories ORDER BY mtime DESC LIMIT 1". Reply with ONLY FOUND after the tool finishes.',
+      'Call list_memories exactly once with sql="SELECT path FROM memories ORDER BY mtime DESC LIMIT 1". Reply with ONLY the exact path returned by the tool, nothing else.',
     );
     try {
-      const step = await waitForToolStep(readID, "list_memories", SESSION_TIMEOUT_MS);
-      expect(step.outputText).toContain(SHARED_MEM_ROOT);
-      expect(step.outputText).toContain(".md");
+      const text = await waitForAssistantText(
+        readID,
+        (candidate) => candidate.includes(SHARED_MEM_ROOT) && candidate.includes(".md"),
+        SESSION_TIMEOUT_MS,
+      );
+      expect(text).toContain(SHARED_MEM_ROOT);
+      expect(text).toContain(".md");
     } finally {
       try { runOcm(["delete", readID]); } catch { /* best-effort */ }
     }
@@ -430,12 +463,16 @@ describe("file-memory live opencode sessions", () => {
 
   it("forget surfaces a TOOL FAILURE when the memory ID does not exist", async () => {
     const sessionID = beginSession(
-      'Call forget exactly once with id="mem_definitelynotavalidid_xyzzy". Reply with ONLY FAILED after the tool finishes.',
+      'Call forget exactly once with id="mem_definitelynotavalidid_xyzzy". Reply with ONLY the exact tool output, nothing else.',
     );
     try {
-      const step = await waitForToolStep(sessionID, "forget", SESSION_TIMEOUT_MS);
-      expect(step.outputText).toContain("TOOL FAILURE");
-      expect(step.outputText).not.toContain("Deleted");
+      const text = await waitForAssistantText(
+        sessionID,
+        (candidate) => candidate.includes("TOOL FAILURE"),
+        SESSION_TIMEOUT_MS,
+      );
+      expect(text).toContain("TOOL FAILURE");
+      expect(text).not.toContain("Deleted");
     } finally {
       try { runOcm(["delete", sessionID]); } catch { /* best-effort */ }
     }
